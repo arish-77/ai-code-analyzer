@@ -14,7 +14,11 @@ async def lifespan(app: FastAPI):
         train_and_save()
 
     # Load model into shared state
-    ml_state["pipeline"] = load_model()
+    try:
+        ml_state["pipeline"] = load_model()
+    except Exception as e:
+        print("Model failed to load:", e)
+        ml_state["pipeline"] = None
     print("✅ ML model loaded")
 
     yield
