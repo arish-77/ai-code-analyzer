@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PyLens — AI Code Analyzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0d0f12;
+  --bg2:       #13161b;
+  --bg3:       #1a1e26;
+  --border:    rgba(255,255,255,0.07);
+  --border2:   rgba(255,255,255,0.12);
+  --text:      #e8eaf0;
+  --text2:     #8a8fa8;
+  --text3:     #555a70;
+  --accent:    #7ee8a2;
+  --accent2:   #5bc4f5;
+  --gold:      #f5c842;
+  --red:       #f56565;
+  --orange:    #f5a442;
+  --blue:      #63b3ed;
+  --green:     #7ee8a2;
+  --font-head: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', monospace;
+  --radius:    12px;
+  --radius-lg: 20px;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ── Noise grain overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+}
+
+/* ── Ambient glow blobs ── */
+.glow-1, .glow-2 {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  pointer-events: none;
+  z-index: 0;
+}
+.glow-1 {
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(126,232,162,0.06) 0%, transparent 70%);
+  top: -200px; left: -200px;
+}
+.glow-2 {
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(91,196,245,0.05) 0%, transparent 70%);
+  bottom: -150px; right: -150px;
+}
+
+/* ── Layout ── */
+#root { position: relative; z-index: 1; }
+
+.shell {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px 80px;
+}
+
+/* ── Header ── */
+.header {
+  padding: 40px 0 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 48px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-mark {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 0 20px rgba(126,232,162,0.3);
+}
+
+.logo-text {
+  font-family: var(--font-head);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.logo-text span { color: var(--accent); }
+
+.badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  background: var(--bg2);
+  letter-spacing: 0.5px;
+}
+
+/* ── Section title ── */
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+/* ── Editor card ── */
+.editor-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-bottom: 20px;
+  transition: border-color 0.2s;
+}
+.editor-card:focus-within { border-color: var(--border2); }
+
+.editor-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg3);
+}
+
+.editor-dots { display: flex; gap: 7px; }
+.editor-dots span {
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  background: var(--border2);
+}
+.editor-dots span:nth-child(1) { background: #ff5f57; }
+.editor-dots span:nth-child(2) { background: #febc2e; }
+.editor-dots span:nth-child(3) { background: #28c840; }
+
+.editor-filename {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.editor-actions { display: flex; gap: 8px; }
+
+.btn-ghost {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-ghost:hover { background: var(--bg3); color: var(--text); border-color: var(--text3); }
+
+.code-textarea {
+  width: 100%;
+  min-height: 280px;
+  padding: 24px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--text);
+  caret-color: var(--accent);
+}
+.code-textarea::placeholder { color: var(--text3); }
+
+/* ── Controls row ── */
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 48px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.btn-example {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border2);
+  background: var(--bg2);
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.btn-example:hover { background: var(--bg3); color: var(--text); }
+
+.btn-primary {
+  font-family: var(--font-head);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 12px 32px;
+  border-radius: var(--radius);
+  border: none;
+  background: linear-gradient(135deg, var(--accent), #4ecb71);
+  color: #0a1a0f;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  box-shadow: 0 0 24px rgba(126,232,162,0.2);
+}
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 0 36px rgba(126,232,162,0.35);
+}
+.btn-primary:active { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+/* ── Spinner ── */
+.spinner {
+  width: 16px; height: 16px;
+  border: 2px solid rgba(10,26,15,0.3);
+  border-top-color: #0a1a0f;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Error banner ── */
+.error-banner {
+  padding: 14px 20px;
+  background: rgba(245,101,101,0.08);
+  border: 1px solid rgba(245,101,101,0.25);
+  border-radius: var(--radius);
+  color: #fc8181;
+  font-size: 14px;
+  margin-bottom: 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: fadeSlide 0.3s ease;
+}
+
+/* ── Results grid ── */
+.results-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+  animation: fadeSlide 0.4s ease;
+}
+
+.results-full {
+  animation: fadeSlide 0.4s ease;
+}
+
+@keyframes fadeSlide {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Card base ── */
+.card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+}
+
+/* ── Score card ── */
+.score-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+}
+
+.score-card::before {
+  content: '';
+  position: absolute;
+  top: -60px; right: -60px;
+  width: 200px; height: 200px;
+  border-radius: 50%;
+  background: var(--grade-color, var(--accent));
+  opacity: 0.05;
+  filter: blur(30px);
+}
+
+.score-top { display: flex; justify-content: space-between; align-items: flex-start; }
+
+.score-number {
+  font-family: var(--font-head);
+  font-size: 72px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -3px;
+  background: linear-gradient(135deg, var(--text), var(--text2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.grade-badge {
+  font-family: var(--font-head);
+  font-size: 28px;
+  font-weight: 800;
+  width: 60px; height: 60px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--grade-bg, rgba(126,232,162,0.1));
+  color: var(--grade-color, var(--accent));
+  border: 1px solid var(--grade-border, rgba(126,232,162,0.2));
+}
+
+.score-label {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text2);
+  font-weight: 300;
+}
+
+.score-bar-track {
+  height: 5px;
+  background: var(--border);
+  border-radius: 10px;
+  margin-top: 20px;
+  overflow: hidden;
+}
+.score-bar-fill {
+  height: 100%;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--grade-color, var(--accent)), var(--accent2));
+  transition: width 1s cubic-bezier(0.16,1,0.3,1);
+}
+
+/* ── Chart card ── */
+.chart-card { display: flex; flex-direction: column; }
+.chart-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* ── Issues card ── */
+.issues-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.issues-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(245,101,101,0.1);
+  color: #fc8181;
+  border: 1px solid rgba(245,101,101,0.2);
+}
+.issues-count.clean {
+  background: rgba(126,232,162,0.1);
+  color: var(--accent);
+  border-color: rgba(126,232,162,0.2);
+}
+
+.issues-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.issues-table th {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text3);
+  text-align: left;
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.issues-table td {
+  padding: 13px 16px;
+  font-size: 13.5px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.issues-table tr:last-child td { border-bottom: none; }
+.issues-table tr { transition: background 0.15s; }
+.issues-table tr:hover td { background: var(--bg3); }
+
+.type-pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+  display: inline-block;
+}
+.type-unused   { background: rgba(245,198,66,0.1);  color: var(--gold);   border: 1px solid rgba(245,198,66,0.2);  }
+.type-nesting  { background: rgba(245,164,66,0.1);  color: var(--orange); border: 1px solid rgba(245,164,66,0.2);  }
+.type-long     { background: rgba(245,101,101,0.1); color: var(--red);    border: 1px solid rgba(245,101,101,0.2); }
+.type-default  { background: rgba(99,179,237,0.1);  color: var(--blue);   border: 1px solid rgba(99,179,237,0.2);  }
+
+.line-num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent2);
+  background: rgba(91,196,245,0.08);
+  padding: 2px 8px;
+  border-radius: 5px;
+}
+
+.msg-text { color: var(--text2); font-size: 13px; }
+
+.empty-issues {
+  text-align: center;
+  padding: 40px;
+  color: var(--text3);
+}
+.empty-icon { font-size: 32px; margin-bottom: 10px; }
+.empty-issues p { font-size: 13px; color: var(--accent); margin-top: 4px; }
+
+/* ── Copy button ── */
+.copy-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0.5px;
+}
+.copy-btn:hover { color: var(--text); border-color: var(--text3); }
+.copy-btn.copied { color: var(--accent); border-color: rgba(126,232,162,0.3); }
+
+/* ── Footer ── */
+.footer {
+  text-align: center;
+  margin-top: 60px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text3);
+  font-family: var(--font-mono);
+}
+
+/* ── Responsive ── */
+@media (max-width: 720px) {
+  .results-grid { grid-template-columns: 1fr; }
+  .score-number { font-size: 56px; }
+  .header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .controls { flex-direction: column; align-items: stretch; }
+  .btn-primary { justify-content: center; }
+}
+</style>
+</head>
+<body>
+<div class="glow-1"></div>
+<div class="glow-2"></div>
+<div id="root"></div>
+
+<script>
+const { useState, useRef, useEffect, useCallback } = React;
+
+// ── Constants ──────────────────────────────────────────────────────────────
+
+const GRADE_STYLES = {
+  A: { color: '#7ee8a2', bg: 'rgba(126,232,162,0.1)', border: 'rgba(126,232,162,0.25)', label: 'Excellent' },
+  B: { color: '#63b3ed', bg: 'rgba(99,179,237,0.1)',  border: 'rgba(99,179,237,0.25)',  label: 'Good' },
+  C: { color: '#f5c842', bg: 'rgba(245,200,66,0.1)',  border: 'rgba(245,200,66,0.25)',  label: 'Average' },
+  D: { color: '#f5a442', bg: 'rgba(245,164,66,0.1)',  border: 'rgba(245,164,66,0.25)',  label: 'Poor' },
+  F: { color: '#f56565', bg: 'rgba(245,101,101,0.1)', border: 'rgba(245,101,101,0.25)', label: 'Critical' },
+};
+
+const TYPE_CLASS = {
+  unused_variable: 'type-unused',
+  deep_nesting:    'type-nesting',
+  long_function:   'type-long',
+};
+const TYPE_LABEL = {
+  unused_variable: 'Unused var',
+  deep_nesting:    'Deep nesting',
+  long_function:   'Long fn',
+};
+
+const EXAMPLES = {
+  clean: `def add(a: int, b: int) -> int:
+    return a + b
+
+def multiply(a: int, b: int) -> int:
+    return a * b
+
+def compute(a: int, b: int) -> dict:
+    total = add(a, b)
+    product = multiply(a, b)
+    return {"sum": total, "product": product}`,
+
+  medium: `def process_orders(orders):
+    unused_config = {"retry": 3}
+
+    results = []
+    for order in orders:
+        if order["status"] == "pending":
+            if order["amount"] > 0:
+                if order["amount"] > 1000:
+                    results.append({"id": order["id"], "flag": "high_value"})
+                else:
+                    results.append({"id": order["id"], "flag": "normal"})
+    return results`,
+
+  bad: `def run(data):
+    dead = "never used"
+    garbage = 999
+
+    out = []
+    for item in data:
+        if item is not None:
+            if isinstance(item, dict):
+                if "key" in item:
+                    if item["key"] != "":
+                        if len(item["key"]) > 2:
+                            if item["key"].isalpha():
+                                out.append(item["key"].upper())
+    x = 1; y = 2; z = 3; a = 4; b = 5
+    c = 6; d = 7; e = 8; f = 9; g = 10
+    return out`,
+};
+
+// ── Donut chart component ──────────────────────────────────────────────────
+
+function DonutChart({ data }) {
+  const canvasRef = useRef(null);
+  const chartRef  = useRef(null);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    if (chartRef.current) chartRef.current.destroy();
+
+    const labels = ['Functions', 'Fn Length', 'Nesting'];
+    const vals   = [
+      data.number_of_functions,
+      data.average_function_length,
+      data.max_nesting_depth,
+    ];
+    const total  = vals.reduce((a, b) => a + b, 0) || 1;
+    const pcts   = vals.map(v => +((v / total) * 100).toFixed(1));
+
+    chartRef.current = new Chart(canvasRef.current, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: pcts,
+          backgroundColor: ['rgba(126,232,162,0.85)', 'rgba(91,196,245,0.85)', 'rgba(245,198,66,0.85)'],
+          borderColor:     ['#0d0f12'],
+          borderWidth:     3,
+          hoverOffset:     6,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        cutout: '68%',
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              color: '#8a8fa8',
+              font: { family: "'DM Mono', monospace", size: 11 },
+              padding: 16,
+              pointStyle: 'circle',
+              usePointStyle: true,
+            },
+          },
+          tooltip: {
+            backgroundColor: '#1a1e26',
+            borderColor: 'rgba(255,255,255,0.07)',
+            borderWidth: 1,
+            titleColor: '#e8eaf0',
+            bodyColor: '#8a8fa8',
+            titleFont: { family: "'Syne', sans-serif", size: 13, weight: '600' },
+            bodyFont: { family: "'DM Mono', monospace", size: 12 },
+            padding: 12,
+            callbacks: {
+              label: ctx => `  ${ctx.parsed.toFixed(1)}% weight`,
+            },
+          },
+        },
+        animation: { animateRotate: true, duration: 800, easing: 'easeOutQuart' },
+      },
+    });
+
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [data]);
+
+  return React.createElement('canvas', { ref: canvasRef, style: { maxHeight: '230px' } });
+}
+
+// ── Score card ─────────────────────────────────────────────────────────────
+
+function ScoreCard({ score, grade }) {
+  const gs = GRADE_STYLES[grade] || GRADE_STYLES.F;
+  const [displayScore, setDisplayScore] = useState(0);
+
+  useEffect(() => {
+    let start = 0;
+    const target = score;
+    const step = target / 40;
+    const timer = setInterval(() => {
+      start += step;
+      if (start >= target) { setDisplayScore(target); clearInterval(timer); }
+      else setDisplayScore(Math.round(start));
+    }, 18);
+    return () => clearInterval(timer);
+  }, [score]);
+
+  return React.createElement('div', {
+    className: 'card score-card',
+    style: { '--grade-color': gs.color, '--grade-bg': gs.bg, '--grade-border': gs.border },
+  },
+    React.createElement('div', null,
+      React.createElement('div', { className: 'section-label' }, 'Quality Score'),
+      React.createElement('div', { className: 'score-top' },
+        React.createElement('div', null,
+          React.createElement('div', { className: 'score-number' }, displayScore),
+          React.createElement('div', { className: 'score-label' }, `/ 100 · ${gs.label}`),
+        ),
+        React.createElement('div', { className: 'grade-badge' }, grade),
+      ),
+      React.createElement('div', { className: 'score-bar-track' },
+        React.createElement('div', {
+          className: 'score-bar-fill',
+          style: { width: `${score}%` },
+        }),
+      ),
+    ),
+  );
+}
+
+// ── Issues table ───────────────────────────────────────────────────────────
+
+function IssuesCard({ issues, onCopy, copied }) {
+  return React.createElement('div', { className: 'card results-full' },
+    React.createElement('div', { className: 'issues-header' },
+      React.createElement('div', null,
+        React.createElement('div', { className: 'section-label' }, 'Issues Detected'),
+        React.createElement('span', {
+          className: `issues-count ${issues.length === 0 ? 'clean' : ''}`,
+        }, issues.length === 0 ? '✓ Clean' : `${issues.length} issue${issues.length > 1 ? 's' : ''}`),
+      ),
+      React.createElement('button', {
+        className: `copy-btn ${copied ? 'copied' : ''}`,
+        onClick: onCopy,
+      }, copied ? '✓ Copied' : 'Copy JSON'),
+    ),
+    issues.length === 0
+      ? React.createElement('div', { className: 'empty-issues' },
+          React.createElement('div', { className: 'empty-icon' }, '🎉'),
+          React.createElement('div', { style: { color: 'var(--text2)', fontSize: '14px' } }, 'No issues found'),
+          React.createElement('p', null, 'This code looks clean!'),
+        )
+      : React.createElement('table', { className: 'issues-table' },
+          React.createElement('thead', null,
+            React.createElement('tr', null,
+              React.createElement('th', null, 'Type'),
+              React.createElement('th', null, 'Line'),
+              React.createElement('th', null, 'Message'),
+            ),
+          ),
+          React.createElement('tbody', null,
+            issues.map((issue, i) =>
+              React.createElement('tr', { key: i },
+                React.createElement('td', null,
+                  React.createElement('span', {
+                    className: `type-pill ${TYPE_CLASS[issue.type] || 'type-default'}`,
+                  }, TYPE_LABEL[issue.type] || issue.type),
+                ),
+                React.createElement('td', null,
+                  React.createElement('span', { className: 'line-num' }, `L${issue.line}`),
+                ),
+                React.createElement('td', null,
+                  React.createElement('span', { className: 'msg-text' }, issue.message),
+                ),
+              )
+            ),
+          ),
+        ),
+  );
+}
+
+// ── Main App ───────────────────────────────────────────────────────────────
+
+function App() {
+  const [code,    setCode]    = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result,  setResult]  = useState(null);
+  const [error,   setError]   = useState(null);
+  const [copied,  setCopied]  = useState(false);
+
+  const analyze = useCallback(async () => {
+    if (!code.trim()) return;
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch('https://ai-code-analyzer-bs5i.onrender.com/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("Invalid response from server");
+      }
+      if (!res.ok) {
+        setError(data.detail || `Error ${res.status}`);
+      } else {
+        setResult(data);
+      }
+    } catch (e) {
+      console.error(e); // 🔥 important for debugging
+      setError('Failed to connect to backend. Check Render server or CORS.');
+    } finally {
+      setLoading(false);
+    }
+  }, [code]);
+
+  const loadExample = (key) => setCode(EXAMPLES[key]);
+  const clearCode   = () => { setCode(''); setResult(null); setError(null); };
+
+  const copyResult = () => {
+    if (!result) return;
+    navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // ctrl/cmd + enter to analyze
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') analyze();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [analyze]);
+
+  return React.createElement('div', { className: 'shell' },
+    // Header
+    React.createElement('header', { className: 'header' },
+      React.createElement('div', { className: 'logo' },
+        React.createElement('div', { className: 'logo-mark' }, '⚡'),
+        React.createElement('div', { className: 'logo-text' },
+          'Py', React.createElement('span', null, 'Lens'),
+        ),
+      ),
+      React.createElement('div', { className: 'badge' }, 'AI Code Analyzer v1.0'),
+    ),
+
+    // Editor
+    React.createElement('div', { className: 'section-label' }, 'Input'),
+    React.createElement('div', { className: 'editor-card' },
+      React.createElement('div', { className: 'editor-topbar' },
+        React.createElement('div', { className: 'editor-dots' },
+          React.createElement('span'), React.createElement('span'), React.createElement('span'),
+        ),
+        React.createElement('span', { className: 'editor-filename' }, 'analysis.py'),
+        React.createElement('div', { className: 'editor-actions' },
+          code && React.createElement('button', { className: 'btn-ghost', onClick: clearCode }, 'Clear'),
+        ),
+      ),
+      React.createElement('textarea', {
+        className:   'code-textarea',
+        value:       code,
+        onChange:    e => setCode(e.target.value),
+        placeholder: '# Paste your Python code here...\n# Press ⌘+Enter to analyze',
+        spellCheck:  false,
+      }),
+    ),
+
+    // Controls
+    React.createElement('div', { className: 'controls' },
+      React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+        React.createElement('button', { className: 'btn-example', onClick: () => loadExample('clean') },
+          React.createElement('span', null, '✅'), 'Clean example',
+        ),
+        React.createElement('button', { className: 'btn-example', onClick: () => loadExample('medium') },
+          React.createElement('span', null, '⚠️'), 'Medium example',
+        ),
+        React.createElement('button', { className: 'btn-example', onClick: () => loadExample('bad') },
+          React.createElement('span', null, '❌'), 'Bad example',
+        ),
+      ),
+      React.createElement('button', {
+        className: 'btn-primary',
+        onClick:   analyze,
+        disabled:  loading || !code.trim(),
+      },
+        loading
+          ? [React.createElement('div', { key: 's', className: 'spinner' }), 'Analyzing…']
+          : [React.createElement('span', { key: 'i' }, '⚡'), 'Analyze Code'],
+      ),
+    ),
+
+    // Error
+    error && React.createElement('div', { className: 'error-banner' },
+      React.createElement('span', null, '⚠️'),
+      error,
+    ),
+
+    // Results
+    result && React.createElement(React.Fragment, null,
+      React.createElement('div', { className: 'section-label', style: { marginBottom: '16px' } }, 'Results'),
+      React.createElement('div', { className: 'results-grid' },
+        React.createElement(ScoreCard, { score: result.score, grade: result.grade }),
+        React.createElement('div', { className: 'card chart-card' },
+          React.createElement('div', { className: 'section-label' }, 'Feature Importance'),
+          React.createElement('div', { className: 'chart-wrap' },
+            React.createElement(DonutChart, { data: result.feature_importance }),
+          ),
+        ),
+      ),
+      React.createElement(IssuesCard, { issues: result.issues, onCopy: copyResult, copied }),
+    ),
+
+    // Footer
+    React.createElement('footer', { className: 'footer' },
+      'pylens · powered by FastAPI + scikit-learn · ⌘+Enter to analyze',
+    ),
+  );
+}
+
+
+
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
